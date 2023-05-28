@@ -905,7 +905,6 @@ void direct_control() {
   display.drawCircle(centreX, centreY, radius, WHITE);
   float dx = (radius * cos((disp_az_norm - 90) * 3.14 / 180)) + centreX;  // calculate X position for the screen coordinates - can be confusing!
   float dy = (radius * sin((disp_az_norm - 90) * 3.14 / 180)) + centreY;  // calculate Y position for the screen coordinates - can be confusing!
-  //draw_arrow(last_dx, last_dy, centreX, centreY, 3, 3, BLACK);            // Erase last arrow
   draw_arrow(dx, dy, centreX, centreY, 3, 3, WHITE);
 }
 
@@ -955,6 +954,37 @@ float bearing(float lat, float lon, float lat2, float lon2) {
   return brng;
 }
 
-void draw_arrow(float x2, float y2, float x1, float y1, float alength, float awidth, int colour) {
-  display.drawLine(x1, y1, x2, y2, colour);
+String calculateMaidenheadLocator(double latitude, double longitude) {
+  const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  double lat = latitude + 90.0;
+  double lon = longitude + 180.0;
+
+  // Calculate field
+  int fieldLon = floor(lon / 20.0);
+  int fieldLat = floor(lat / 10.0);
+
+  // Calculate square
+  int squareLon = floor((lon - fieldLon * 20.0) / 2.0);
+  int squareLat = floor((lat - fieldLat * 10.0) / 1.0);
+
+  // Calculate subsquare
+  int subsquareLon = floor((lon - fieldLon * 20.0 - squareLon * 2.0) / (5.0 / 60.0));
+  int subsquareLat = floor((lat - fieldLat * 10.0 - squareLat * 1.0) / (2.5 / 60.0));
+
+  // Calculate extended subsquare
+  int extSubsquareLon = floor((lon - fieldLon * 20.0 - squareLon * 2.0 - subsquareLon * (5.0 / 60.0)) / (5.0 / 60.0 / 24.0));
+  int extSubsquareLat = floor((lat - fieldLat * 10.0 - squareLat * 1.0 - subsquareLat * (2.5 / 60.0)) / (2.5 / 60.0 / 24.0));
+
+  // Construct Maidenhead Locator string
+  String locator = "";
+  locator += alphabet[fieldLon];
+  locator += alphabet[fieldLat];
+  locator += String(squareLon);
+  locator += String(squareLat);
+  locator += alphabet[subsquareLon];
+  locator += alphabet[subsquareLat];
+  locator += String(extSubsquareLon);
+  locator += String(extSubsquareLat);
+
+  return locator;
 }
