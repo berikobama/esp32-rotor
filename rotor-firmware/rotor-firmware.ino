@@ -9,6 +9,9 @@
 #include <Adafruit_SSD1306.h>
 #include <TMCStepper.h>
 #include <Preferences.h>
+#include "TinyGPS++.h";
+#include "HardwareSerial.h";
+
 
 
 #define DRIVER_ADDRESS 0b00
@@ -663,7 +666,7 @@ AiEsp32RotaryEncoder encoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN_AZ, ROT
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 const float steps_per_degree = ((1600.0) / 360.0) * 50;
-String serial_in, az_in, el_in;
+String serial_in, az_in, el_in, lc;
 float az = 0;
 float el = 0;
 float az_old = 0;
@@ -681,6 +684,9 @@ const int radius = 20;
 
 TaskHandle_t Core0TaskHnd;
 TaskHandle_t Core1TaskHnd;
+
+TinyGPSPlus gps;
+HardwareSerial SerialGPS(1);
 
 
 void rotary_onButtonClick() {
@@ -769,8 +775,9 @@ void init_display() {
 
 
 void setup() {
+  lc = "          ";
   preferences.begin("settings", false);
-  
+
   pos_lat = preferences.getFloat("pos_lat");
   pos_lon = preferences.getFloat("pos_lon");
 
@@ -788,6 +795,8 @@ void setup() {
   serial_in.reserve(50);
   Serial.begin(115200);
 
+  SerialGPS.begin(9600, SERIAL_8N1, 16, 17);
+
   init_stepper();
 
   xTaskCreatePinnedToCore(CoreTask0, "CPU_0", 4096, NULL, 1, &Core0TaskHnd, 0);
@@ -800,12 +809,17 @@ void loop() {
 
 void doMenu() {
   display.clearDisplay();
-  display.setTextSize(1);
-  display.setCursor(0, 8);
-  display.println(current_menu.header);
   if (current_menu.header == "Azimuth") {
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.println(lc);
+    display.setTextSize(1);
     direct_control();
   } else {
+    display.setTextSize(1);
+    display.setCursor(0, 8);
+    display.print(current_menu.header);
+    display.print("\n");
     int start = current_menu.position - 3 < 0 ? 0 : current_menu.position - 3;
     int end = current_menu.position + 3 > current_menu.num_items ? current_menu.num_items : current_menu.position + 3;
     end = end < current_menu.num_items ? current_menu.num_items : end;
@@ -837,6 +851,15 @@ void CoreTask0(void* parameter) {
   for (;;) {
     vTaskDelay(50);
     doMenu();
+
+    while (SerialGPS.available() > 0) {
+      gps.encode(SerialGPS.read());
+    }
+    if (gps.location.isUpdated()) {
+      pos_lat = gps.location.lat();
+      pos_lon = gps.location.lng();
+      lc = calculateMaidenheadLocator(pos_lat, pos_lon);
+    }
 
     if (encoder_changed) {
       rotary_loop();
@@ -903,9 +926,9 @@ void direct_control() {
   display.print(disp_az_norm);
   display.println((char)247);
   display.drawCircle(centreX, centreY, radius, WHITE);
-  float dx = (radius * cos((disp_az_norm - 90) * 3.14 / 180)) + centreX;  // calculate X position for the screen coordinates - can be confusing!
-  float dy = (radius * sin((disp_az_norm - 90) * 3.14 / 180)) + centreY;  // calculate Y position for the screen coordinates - can be confusing!
-  draw_arrow(dx, dy, centreX, centreY, 3, 3, WHITE);
+  float dx = (radius * cos((disp_az_norm - 90) * 3.14 / 180)) + centreX;
+  float dy = (radius * sin((disp_az_norm - 90) * 3.14 / 180)) + centreY;
+  display.drawLine(dx, dy, centreX, centreY, WHITE);
 }
 
 void stop() {
@@ -933,7 +956,7 @@ void handle_prefix() {
 
 void set_lat() {
 
-   preferences.putFloat("pos_lat", pos_lat);
+  preferences.putFloat("pos_lat", pos_lat);
 }
 void set_lon() {
 
@@ -968,12 +991,12 @@ String calculateMaidenheadLocator(double latitude, double longitude) {
   int squareLat = floor((lat - fieldLat * 10.0) / 1.0);
 
   // Calculate subsquare
-  int subsquareLon = floor((lon - fieldLon * 20.0 - squareLon * 2.0) / (5.0 / 60.0));
-  int subsquareLat = floor((lat - fieldLat * 10.0 - squareLat * 1.0) / (2.5 / 60.0));
+  int subsquareLon = floor((lon - fieldLon * 20.0 - squareLon * 2.0) * 12.0);
+  int subsquareLat = floor((lat - fieldLat * 10.0 - squareLat * 1.0) * 24.0);
 
   // Calculate extended subsquare
-  int extSubsquareLon = floor((lon - fieldLon * 20.0 - squareLon * 2.0 - subsquareLon * (5.0 / 60.0)) / (5.0 / 60.0 / 24.0));
-  int extSubsquareLat = floor((lat - fieldLat * 10.0 - squareLat * 1.0 - subsquareLat * (2.5 / 60.0)) / (2.5 / 60.0 / 24.0));
+  int extSubsquareLon = floor((lon - fieldLon * 20.0 - squareLon * 2.0 - subsquareLon / 12.0) * 120);
+  int extSubsquareLat = floor((lat - fieldLat * 10.0 - squareLat * 1.0 - subsquareLat / 24.0) * 240);
 
   // Construct Maidenhead Locator string
   String locator = "";
